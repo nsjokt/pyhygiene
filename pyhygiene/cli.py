@@ -57,8 +57,14 @@ def cmd_clean(args: argparse.Namespace) -> int:
     ids = set(args.id or [])
     if args.only:
         ids |= {c["id"] for c in plan["candidates"] if c["category"] in args.only}
-    if not ids:  # default: consider every candidate
-        ids = {c["id"] for c in plan["candidates"]}
+    if not ids and not args.only:
+        # Blanket default = low-risk, non-surprising categories only. Redundant
+        # interpreters and expensive model caches require explicit selection
+        # (--include-interpreters / --only cache / --id) so a routine cleanup
+        # never silently nukes a 13 GB model cache or an interpreter.
+        ids = {c["id"] for c in plan["candidates"]
+               if c["category"] in ("user_packages", "broken_venv")
+               or (c["category"] == "cache" and c["risk"] == "low")}
     result = clean_mod.execute(plan, ids, report, apply=args.apply,
                                include_interpreters=args.include_interpreters)
     print(clean_mod.render_result(result))
@@ -106,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     pc.add_argument("--id", type=int, action="append",
                     help="limit to candidate #(s) from `plan` (repeatable)")
     pc.add_argument("--only", action="append",
-                    choices=["user_packages", "broken_venv", "redundant_interpreter"],
+                    choices=["user_packages", "broken_venv", "redundant_interpreter", "cache"],
                     help="limit to a category (repeatable)")
     pc.add_argument("--include-interpreters", action="store_true",
                     help="allow removing redundant interpreters (off by default)")

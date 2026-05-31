@@ -18,7 +18,7 @@ def test_audit_returns_expected_shape(tmp_path: Path):
 
     assert set(report) == {
         "roots", "interpreters", "venvs", "project_markers",
-        "automation", "user_site_packages",
+        "automation", "user_site_packages", "caches",
     }
     # the fake venv is discovered and its base interpreter parsed
     assert any(v["version"] == "3.14.3" for v in report["venvs"])

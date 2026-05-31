@@ -17,5 +17,8 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
+# Packaged skill artifact (built from ~/.claude/skills/python-audit)
+*.skill
+
 # OS
 .DS_Store

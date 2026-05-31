@@ -166,6 +166,18 @@ def build_plan(report: dict) -> dict:
             f"{it['kind']} {it['version']} — no venv built from it and another "
             f"{_minor(it['version'])} interpreter exists", action)
 
+    # 4) Caches: regenerable, often the biggest safe win. Risk = refill cost
+    #    (wheel caches are trivial to refill; model caches re-download many GB).
+    for c in report.get("caches", []):
+        if is_protected(c["path"], protected):
+            continue
+        refill = c.get("refill", "")
+        expensive = "expensive" in refill.lower()
+        add("cache", c["path"], "user", "medium" if expensive else "low",
+            f"{c['tool']} cache — regenerable; refill: {refill}",
+            {"type": "rmtree", "target": c["path"]},
+            tool=c["tool"], refill=refill)
+
     candidates.sort(key=lambda c: c["size_kb"], reverse=True)
     total_kb = sum(c["size_kb"] for c in candidates)
     return {

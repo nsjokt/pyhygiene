@@ -19,6 +19,55 @@ _PRUNE = {"Library", "Caches", ".Trash", "node_modules", ".git", "__pycache__"}
 # Reference shape we look for in cron/launchd: a path to a python interpreter
 # or into a venv's bin/. Used to mark things as in-use (PROTECTED).
 _REF_RE = re.compile(r"/[^\s<>\"']*(?:python[0-9.]*|/\.?venv/bin/[A-Za-z0-9._-]+)")
+# Runner-style invocations (uv run / poetry run / …) don't name a venv path
+# directly, so we resolve the venv from the command's working directory.
+_RUNNER_RE = re.compile(r"\b(?:uv|poetry|pipenv|pdm|hatch|rye)\s+run\b")
+_DIR_RE = re.compile(r"""(?:cd|--directory|--project)\s+["']?(/[^\s"';&|<>]+)""")
+
+# Known package/tool caches. These are regenerable, but "refill cost" differs:
+# wheel caches re-download in seconds; model caches re-download many GB.
+_CACHE_SPECS = [
+    ("pip", "pip", "cheap (re-downloads wheels)"),
+    ("uv", "uv", "cheap (re-downloads wheels)"),
+    ("poetry", "pypoetry", "cheap"),
+    ("huggingface", "huggingface", "EXPENSIVE — re-downloads models (can be many GB)"),
+    ("torch", "torch", "expensive — re-downloads model weights"),
+]
+
+
+def _runner_venv_refs(text: str) -> list[str]:
+    """If a command uses `uv run`/`poetry run`/…, resolve the venv it would use
+    from a `cd <dir>` / `--directory <dir>` in the same command."""
+    if not _RUNNER_RE.search(text):
+        return []
+    refs: list[str] = []
+    for d in _DIR_RE.findall(text):
+        for sub in (".venv", "venv"):
+            cand = Path(d) / sub / "bin" / "python"
+            if cand.exists():
+                refs.append(str(cand))
+    return refs
+
+
+# launchd often runs a wrapper script in a WorkingDirectory rather than a literal
+# venv path. To see through that, expand a plist with its WorkingDirectory (as a
+# synthetic `cd`) and the contents of any wrapper scripts it invokes.
+_WORKDIR_RE = re.compile(r"<key>WorkingDirectory</key>\s*<string>([^<]+)</string>")
+_SCRIPT_RE = re.compile(r"<string>(/[^<>\s]+\.(?:sh|bash|zsh))</string>")
+
+
+def _expand_plist(text: str) -> str:
+    extra: list[str] = []
+    for wd in _WORKDIR_RE.findall(text):
+        extra.append(f"cd {wd}")                 # so runner detection has a dir
+    for sp in _SCRIPT_RE.findall(text):
+        p = Path(sp)
+        if p.is_file():
+            try:
+                extra.append(p.read_text(errors="ignore"))
+            except Exception:
+                pass
+    return text + "\n" + "\n".join(extra)
 
 
 def _run(cmd: list[str]) -> str:
@@ -145,24 +194,42 @@ def automation_refs() -> dict[str, list[str]]:
     refs: dict[str, list[str]] = {}
     cron = _run(["crontab", "-l"])
     if cron:
-        hits = sorted(set(_REF_RE.findall(cron)))
+        hits: set[str] = set()
+        for line in cron.splitlines():          # per-line so cd/runner stay paired
+            hits |= set(_REF_RE.findall(line)) | set(_runner_venv_refs(line))
         if hits:
-            refs["crontab"] = hits
+            refs["crontab"] = sorted(hits)
     for d in (HOME / "Library/LaunchAgents", Path("/Library/LaunchAgents"),
               Path("/Library/LaunchDaemons")):
         if not d.is_dir():
             continue
-        hits: set[str] = set()
+        hits = set()
         for plist in d.glob("*.plist"):
             try:
-                hits |= set(_REF_RE.findall(plist.read_text(errors="ignore")))
+                text = _expand_plist(plist.read_text(errors="ignore"))
             except Exception:
-                pass
+                continue
+            hits |= set(_REF_RE.findall(text)) | set(_runner_venv_refs(text))
         # drop obvious non-interpreters like a bare "/bin/python" that never exists
         hits = {h for h in hits if Path(h).exists() or "venv" in h}
         if hits:
             refs[str(d)] = sorted(hits)
     return refs
+
+
+def find_caches() -> list[dict]:
+    """Regenerable package/tool caches — often the biggest safe disk win."""
+    roots = [HOME / ".cache", HOME / "Library" / "Caches"]
+    out: list[dict] = []
+    seen: set[str] = set()
+    for tool, name, refill in _CACHE_SPECS:
+        for r in roots:
+            p = r / name
+            if p.is_dir() and str(p) not in seen:
+                seen.add(str(p))
+                out.append({"tool": tool, "path": str(p),
+                            "size": dir_size_h(p), "refill": refill})
+    return out
 
 
 def user_site_packages() -> list[dict]:
@@ -183,6 +250,7 @@ def audit(roots: list[Path] | None = None) -> dict:
         "project_markers": find_project_markers(roots),
         "automation": automation_refs(),
         "user_site_packages": user_site_packages(),
+        "caches": find_caches(),
     }
 
 
@@ -220,5 +288,12 @@ def render_text(report: dict) -> str:
         L.append("  (none)")
     for u in report["user_site_packages"]:
         L.append(f"  {u['path'].replace(str(HOME), '~')}   {u['size']}")
+
+    L.append("\n=== [6] Caches (regenerable — often the biggest safe win) ===")
+    if not report.get("caches"):
+        L.append("  (none)")
+    for c in report.get("caches", []):
+        L.append(f"  {c['tool']:<12}{c['size']:<8}{c['path'].replace(str(HOME), '~')}")
+        L.append(f"        refill: {c['refill']}")
 
     return "\n".join(L)

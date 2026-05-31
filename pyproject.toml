@@ -1,7 +1,7 @@
 [project]
 name = "pyhygiene"
-version = "0.1.0"
-description = "Diagnose and safely clean up messy Python environments (interpreters, venvs, orphaned packages) — automation-aware, backup-first, never auto-sudo."
+version = "0.2.0"
+description = "Diagnose and safely clean up messy Python environments (interpreters, venvs, orphaned packages, regenerable caches) — automation-aware, backup-first, never auto-sudo."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
