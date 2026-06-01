@@ -15,7 +15,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from .plan import compute_protected, is_protected
+from .plan import _h, compute_protected, is_protected
 
 HOME = Path.home()
 
@@ -83,6 +83,16 @@ echo "done."
     return script
 
 
+def default_selection(plan: dict) -> set[int]:
+    """IDs a blanket `clean` (no --id/--only) acts on: low-risk, non-surprising
+    categories only. Redundant interpreters and expensive model caches are
+    excluded so a routine cleanup never silently nukes a 13 GB model cache or an
+    interpreter — those require explicit selection."""
+    return {c["id"] for c in plan["candidates"]
+            if c["category"] in ("user_packages", "broken_venv")
+            or (c["category"] == "cache" and c["risk"] == "low")}
+
+
 def execute(plan: dict, selected_ids: set[int], report: dict, *,
             apply: bool = False, include_interpreters: bool = False) -> dict:
     protected = compute_protected(report)  # fresh re-validation
@@ -101,8 +111,10 @@ def execute(plan: dict, selected_ids: set[int], report: dict, *,
         safe.append(c)
 
     if not apply:
+        # reclaim reflects what WOULD actually be removed (the selected+safe set),
+        # not the whole plan — otherwise a gated blanket run overstates the total.
         return {"dry_run": True, "would_remove": safe, "refused": refused,
-                "reclaim_h": plan["total_reclaim_h"]}
+                "reclaim_h": _h(sum(c.get("size_kb", 0) for c in safe))}
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     bk = make_backup(safe, stamp)

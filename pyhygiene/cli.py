@@ -58,13 +58,10 @@ def cmd_clean(args: argparse.Namespace) -> int:
     if args.only:
         ids |= {c["id"] for c in plan["candidates"] if c["category"] in args.only}
     if not ids and not args.only:
-        # Blanket default = low-risk, non-surprising categories only. Redundant
-        # interpreters and expensive model caches require explicit selection
-        # (--include-interpreters / --only cache / --id) so a routine cleanup
-        # never silently nukes a 13 GB model cache or an interpreter.
-        ids = {c["id"] for c in plan["candidates"]
-               if c["category"] in ("user_packages", "broken_venv")
-               or (c["category"] == "cache" and c["risk"] == "low")}
+        # Blanket default = low-risk, non-surprising categories only (interpreters
+        # and expensive model caches require explicit --include-interpreters /
+        # --only cache / --id). See clean.default_selection.
+        ids = clean_mod.default_selection(plan)
     result = clean_mod.execute(plan, ids, report, apply=args.apply,
                                include_interpreters=args.include_interpreters)
     print(clean_mod.render_result(result))
