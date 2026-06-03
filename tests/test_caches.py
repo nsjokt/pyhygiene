@@ -16,7 +16,7 @@ def test_find_caches_detects_and_classifies(tmp_path, monkeypatch):
 
 
 def test_runner_venv_refs_resolves_uv_run(tmp_path):
-    proj = tmp_path / "market-assist"
+    proj = tmp_path / "market-tool"
     (proj / ".venv" / "bin").mkdir(parents=True)
     (proj / ".venv" / "bin" / "python").write_text("")
     cmd = f"cd {proj} && uv run python -m app.daily 2>&1"
@@ -29,7 +29,7 @@ def test_runner_venv_refs_resolves_uv_run(tmp_path):
 def test_wrapper_script_automation_resolves_via_workingdir(tmp_path):
     # launchd runs a wrapper .sh in a WorkingDirectory; the `uv run` lives inside
     # the script, not the plist. Detection must follow both.
-    proj = tmp_path / "market-assist"
+    proj = tmp_path / "market-tool"
     (proj / ".venv" / "bin").mkdir(parents=True)
     (proj / ".venv" / "bin" / "python").write_text("")
     wrapper = proj / "scripts" / "run.sh"

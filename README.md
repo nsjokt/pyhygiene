@@ -43,8 +43,8 @@ arrive only with their safety guarantees attached.
 
 ## Design
 
-See [`../mac_clear/DESIGN-python-hygiene.md`](../mac_clear/DESIGN-python-hygiene.md)
-for the full architecture: a tool-agnostic core (this CLI + shell guardrails)
-plus thin per-platform adapters (a Claude Code skill lives at
-`~/.claude/skills/python-audit`, with Cursor / aider / `AGENTS.md` adapters to
-follow).
+A **tool-agnostic core** (this CLI + OS/shell guardrails) plus thin
+**per-platform adapters**. A Claude Code skill (`python-audit`) wraps the CLI;
+Cursor / aider / `AGENTS.md` adapters can follow. The safety logic —
+automation cross-check, backup-first, never auto-sudo — lives in the CLI, so
+every adapter inherits it rather than re-implementing it.

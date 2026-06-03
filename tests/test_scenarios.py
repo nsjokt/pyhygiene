@@ -145,7 +145,7 @@ def test_scenario_launchd_bot(tmp_path):
     pyenv = tmp_path / "pyenv/3.11.12"
     pyenv_bin = pyenv / "bin"
     pyenv_bin.mkdir(parents=True)
-    bot = _venv(tmp_path / "auto_trader/venv", str(pyenv_bin), "3.11.12")
+    bot = _venv(tmp_path / "trading-bot/venv", str(pyenv_bin), "3.11.12")
     report = _machine(
         tmp_path,
         interpreters=[_interp("pyenv", "3.11.12", "3.11.12", pyenv)],
@@ -162,10 +162,10 @@ def test_scenario_launchd_bot(tmp_path):
 
 # ── Scenario 5: uv-run wrapper script (resolve venv through WorkingDirectory) ─
 def test_scenario_uv_run_wrapper(tmp_path):
-    proj = tmp_path / "market-assist"
+    proj = tmp_path / "market-tool"
     (proj / ".venv" / "bin").mkdir(parents=True)
     (proj / ".venv" / "bin" / "python").write_text("")
-    wrapper = proj / "scripts" / "run_morning.sh"
+    wrapper = proj / "scripts" / "run_daily.sh"
     wrapper.parent.mkdir(parents=True)
     wrapper.write_text('cd "$PROJECT_ROOT"\nuv run python -m lib.snapshot\n')
     plist = (f"<key>WorkingDirectory</key><string>{proj}</string>"
