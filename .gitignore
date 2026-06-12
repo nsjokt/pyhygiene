@@ -23,3 +23,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Generated marketplace/README assets — wire into the repo post-review
+assets/
