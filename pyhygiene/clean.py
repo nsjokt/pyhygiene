@@ -2,14 +2,18 @@
 
 Safety model, in order:
   1. dry-run is the default; mutation requires an explicit `apply=True`.
-  2. the protected set is recomputed here from a *fresh* audit, so a stale plan
-     can't delete something that became in-use.
+  2. the protected set is recomputed from the report passed in; the CLI passes a
+     freshly-taken audit at apply time, so a stale plan can't delete something
+     that came into use between planning and applying.
   3. a backup manifest is written before anything is removed.
-  4. root-owned targets are NEVER deleted with sudo — a handoff script is
-     written for the user to run themselves.
+  4. root-owned targets are NEVER deleted with sudo — a handoff script is written
+     for the user to run themselves, and the target path is handed to it via a
+     data file (never interpolated into shell, so no quoting/injection risk).
 """
 from __future__ import annotations
 
+import re
+import shlex
 import shutil
 import subprocess
 from datetime import datetime
@@ -43,6 +47,10 @@ def _package_manifest(site_dir: str) -> list[str]:
 def make_backup(items: list[dict], stamp: str) -> Path:
     bk = HOME / f"python_cleanup_backup_{stamp}"
     bk.mkdir(parents=True, exist_ok=True)
+    try:
+        bk.chmod(0o700)  # manifest enumerates installed packages — keep it private
+    except OSError:
+        pass
     removed = ["category\tpath\tsize"]
     for c in items:
         removed.append(f"{c['category']}\t{c['path']}\t{c.get('size_h', '')}")
@@ -62,24 +70,42 @@ def make_backup(items: list[dict], stamp: str) -> Path:
 
 
 def write_handoff(bk: Path, item: dict) -> Path:
-    """A self-documenting sudo script for a root-owned target. Never executed."""
+    """A self-documenting sudo script for a root-owned target. Never executed.
+
+    The target path is written to a sidecar data file and read by the script at
+    run time, so it never passes through shell parsing — no quoting/injection
+    risk even for paths with spaces, ``$()``, backticks, or quotes. The
+    dangling-symlink cleanup removes only NOW-BROKEN /usr/local/bin links that
+    pointed into the removed tree (specific path-fragment match), never unrelated
+    links such as a Homebrew interpreter that merely shares a version number.
+    """
     target = item["action"].get("target", item["path"])
-    script = bk / f"sudo_remove_{Path(target).name}.sh"
-    script.write_text(f"""#!/usr/bin/env bash
-# Handoff script — REQUIRES sudo, run it YOURSELF:  sudo bash {script}
-# pyhygiene never runs sudo on your behalf and never takes a password.
-set -uo pipefail
-if [[ $EUID -ne 0 ]]; then echo "run with: sudo bash $0"; exit 1; fi
-echo "[remove] {target}"
-rm -rf "{target}"
-# remove dangling /usr/local/bin symlinks pointing into the removed tree:
-for link in /usr/local/bin/*; do
-  [[ -L "$link" ]] || continue
-  case "$(readlink "$link")" in *"{Path(target).name}"*) echo "[unlink] $link"; rm -f "$link";; esac
-done
-echo "done."
-""")
-    script.chmod(0o755)
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", Path(target).name) or "target"
+    data = bk / f"sudo_remove_{slug}.target"
+    data.write_text(target + "\n")
+    script = bk / f"sudo_remove_{slug}.sh"
+    body = (
+        "#!/usr/bin/env bash\n"
+        "# Handoff script — REQUIRES sudo, run it YOURSELF:\n"
+        f"#   sudo bash {shlex.quote(str(script))}\n"
+        "# pyhygiene never runs sudo on your behalf and never takes a password.\n"
+        "set -uo pipefail\n"
+        'if [[ $EUID -ne 0 ]]; then echo "run with: sudo bash $0"; exit 1; fi\n'
+        'here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+        f'IFS= read -r target < "$here/{data.name}"\n'
+        'if [[ -z "$target" || "$target" != /* ]]; then echo "refusing: bad target"; exit 1; fi\n'
+        'echo "[remove] $target"\n'
+        'rm -rf -- "$target"\n'
+        "# remove only NOW-BROKEN /usr/local/bin symlinks that pointed into it:\n"
+        'frag="${target#/}"\n'
+        'for link in /usr/local/bin/*; do\n'
+        '  [[ -L "$link" && ! -e "$link" ]] || continue\n'
+        '  case "$(readlink "$link")" in *"$frag"*) echo "[unlink] $link"; rm -f -- "$link";; esac\n'
+        "done\n"
+        'echo "done."\n'
+    )
+    script.write_text(body)
+    script.chmod(0o700)
     return script
 
 

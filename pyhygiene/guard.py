@@ -74,17 +74,29 @@ def install(*, apply: bool = True, rc_path: Path | None = None,
     actions: list[dict] = []
 
     # 1) shell rc guardrail block
-    rc_text = rc.read_text() if rc.exists() else ""
-    if SENTINEL in rc_text:
-        actions.append({"kind": "shell-rc", "target": str(rc), "status": "already-present"})
-    elif apply:
-        with rc.open("a") as f:
-            if rc_text and not rc_text.endswith("\n"):
-                f.write("\n")
-            f.write(_block())
-        actions.append({"kind": "shell-rc", "target": str(rc), "status": "added"})
+    shell = os.environ.get("SHELL", "")
+    if "fish" in shell and rc_path is None:
+        # the block is POSIX (bash/zsh) syntax; writing it into a fish config
+        # would silently never load. Tell the user instead of corrupting it.
+        actions.append({"kind": "shell-rc",
+                        "target": str(HOME / ".config/fish/config.fish"),
+                        "status": "unsupported-shell (fish): add "
+                                  "'set -gx PIP_REQUIRE_VIRTUALENV true' manually"})
     else:
-        actions.append({"kind": "shell-rc", "target": str(rc), "status": "would-add"})
+        try:
+            rc_text = rc.read_text(errors="surrogateescape") if rc.exists() else ""
+            if SENTINEL in rc_text:
+                actions.append({"kind": "shell-rc", "target": str(rc), "status": "already-present"})
+            elif apply:
+                with rc.open("a", encoding="utf-8", errors="surrogateescape") as f:
+                    if rc_text and not rc_text.endswith("\n"):
+                        f.write("\n")
+                    f.write(_block())
+                actions.append({"kind": "shell-rc", "target": str(rc), "status": "added"})
+            else:
+                actions.append({"kind": "shell-rc", "target": str(rc), "status": "would-add"})
+        except OSError as e:  # unreadable/unwritable rc shouldn't crash install
+            actions.append({"kind": "shell-rc", "target": str(rc), "status": f"failed: {e}"})
 
     # 2) PEP 668 markers on every pyenv interpreter
     pv = _pyenv_versions(pyenv_root)
@@ -95,8 +107,11 @@ def install(*, apply: bool = True, rc_path: Path | None = None,
                 if marker.exists():
                     actions.append({"kind": "pep668", "target": str(marker), "status": "already-present"})
                 elif apply:
-                    marker.write_text(MARKER_TEXT)
-                    actions.append({"kind": "pep668", "target": str(marker), "status": "added"})
+                    try:
+                        marker.write_text(MARKER_TEXT)
+                        actions.append({"kind": "pep668", "target": str(marker), "status": "added"})
+                    except OSError as e:  # read-only interpreter dir → record, don't crash
+                        actions.append({"kind": "pep668", "target": str(marker), "status": f"failed: {e}"})
                 else:
                     actions.append({"kind": "pep668", "target": str(marker), "status": "would-add"})
 

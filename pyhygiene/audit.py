@@ -15,7 +15,9 @@ from pathlib import Path
 HOME = Path.home()
 
 # Directories that are huge and never interesting to descend into.
-_PRUNE = {"Library", "Caches", ".Trash", "node_modules", ".git", "__pycache__"}
+_PRUNE = {"Library", "Caches", ".Trash", "node_modules", ".git", "__pycache__",
+          ".cache", ".npm", ".cargo", ".rustup", ".gradle", ".m2",
+          "Pictures", "Movies", "Music"}
 # Reference shape we look for in cron/launchd: a path to a python interpreter
 # or into a venv's bin/. Used to mark things as in-use (PROTECTED).
 _REF_RE = re.compile(r"/[^\s<>\"']*(?:python[0-9.]*|/\.?venv/bin/[A-Za-z0-9._-]+)")
@@ -95,7 +97,14 @@ def default_roots() -> list[Path]:
              "repos", "git"]
     roots = [HOME / n for n in names if (HOME / n).is_dir()]
     cwd = Path.cwd()
-    if cwd not in roots:
+    # Don't treat all of $HOME (or /) as a "project root" — that walks the whole
+    # tree twice. And skip cwd if an existing root already covers it (or vice
+    # versa), so nested roots aren't scanned twice.
+    if cwd not in (HOME, Path("/")) and not any(
+            cwd == r
+            or str(cwd).startswith(str(r).rstrip("/") + "/")
+            or str(r).startswith(str(cwd).rstrip("/") + "/")
+            for r in roots):
         roots.append(cwd)
     return roots
 
@@ -153,15 +162,20 @@ def find_venvs(roots: list[Path]) -> list[dict]:
     for root in roots:
         if not root.is_dir():
             continue
-        for dirpath, _dirs, files in _walk_prune(root):
+        for dirpath, dirs, files in _walk_prune(root):
             if "pyvenv.cfg" not in files:
                 continue
+            dirs[:] = []  # found a venv — don't descend into its site-packages
             vdir = Path(dirpath)
             if str(vdir) in seen:
                 continue
             seen.add(str(vdir))
+            try:
+                text = (vdir / "pyvenv.cfg").read_text(errors="ignore")
+            except OSError:
+                continue  # unreadable cfg (e.g. perms) shouldn't abort the audit
             cfg = {}
-            for line in (vdir / "pyvenv.cfg").read_text(errors="ignore").splitlines():
+            for line in text.splitlines():
                 if "=" in line:
                     k, _, v = line.partition("=")
                     cfg[k.strip()] = v.strip()

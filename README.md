@@ -1,9 +1,9 @@
 # pyhygiene
 
 Diagnose and **safely** clean up messy Python environments — multiple
-interpreters (pyenv, Homebrew, python.org, system, conda), scattered
-virtualenvs, orphaned `pip install --user` packages, redundant duplicate
-versions.
+interpreters (pyenv, Homebrew, python.org, system), scattered virtualenvs,
+orphaned `pip install --user` packages, redundant duplicate versions, and
+multi-GB package caches.
 
 What makes it safe (and different from a one-off `rm -rf` script):
 
@@ -30,16 +30,19 @@ pyhygiene audit
 
 ## Commands
 
-| Command | Status | What it does |
-|---|---|---|
-| `pyhygiene audit [roots…] [--json]` | ✅ | Read-only diagnosis. `--json` for tooling/agents. |
-| `pyhygiene guard status` | ✅ | Check whether the prevention guardrails are in place. |
-| `pyhygiene plan` | 🚧 | Risk-ranked cleanup plan from an audit. |
-| `pyhygiene clean` | 🚧 | Backup-first, automation-aware cleanup. |
-| `pyhygiene guard install` | 🚧 | Install prevention guardrails (PEP 668 marker, etc.). |
+| Command | What it does |
+|---|---|
+| `pyhygiene audit [roots…] [--json]` | Read-only diagnosis: interpreters, venvs, project mapping, caches, and a `cron`/`launchd` cross-check. |
+| `pyhygiene plan [roots…] [--json]` | Risk-ranked cleanup plan with reclaimable size. Read-only. |
+| `pyhygiene clean [roots…]` | Cleanup. **Dry-run by default** — pass `--apply` to execute (a backup manifest is written first). |
+| `pyhygiene guard status` | Check whether the prevention guardrails are installed. |
+| `pyhygiene guard install` | Install the prevention guardrails (PEP 668 marker, etc.) — idempotent. |
 
-The MVP intentionally ships **only read-only commands**. Mutating commands
-arrive only with their safety guarantees attached.
+`clean` is a dry-run unless you pass `--apply`. A blanket run only removes
+low-risk items (orphaned `--user` packages, broken venvs, cheap caches);
+redundant interpreters and expensive model caches require explicit selection
+(`--include-interpreters`, `--only cache`, or `--id`), and root-owned removals
+are handed off as a script you run yourself.
 
 ## Design
 

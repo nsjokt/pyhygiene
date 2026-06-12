@@ -15,10 +15,11 @@ if [[ ! -f "$SKILL/SKILL.md" ]]; then
   exit 1
 fi
 
-# sync the package (single source of truth = this repo) into the bundled copy
+# sync the package (single source of truth = this repo) into the bundled copy.
+# rsync --delete so modules removed/renamed in the repo don't linger in the bundle.
 mkdir -p "$SKILL/scripts/pyhygiene"
-cp "$REPO"/pyhygiene/*.py "$SKILL/scripts/pyhygiene/"
-rm -rf "$SKILL/scripts/pyhygiene/__pycache__"
+rsync -a --delete --include='*.py' --exclude='*' \
+  "$REPO/pyhygiene/" "$SKILL/scripts/pyhygiene/"
 
 OUT="$REPO/python-audit.skill"
 rm -f "$OUT"

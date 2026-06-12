@@ -10,6 +10,8 @@ These double as regression guards: every bug we found in development has a
 scenario here so a future change can't silently reintroduce it. See SCENARIOS.md
 for the plain-language catalog.
 """
+from __future__ import annotations  # PEP 604 `X | Y` annotations on Python 3.9
+
 from pathlib import Path
 
 import pytest
